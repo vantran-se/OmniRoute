@@ -969,7 +969,8 @@ export default function ProviderDetailPage() {
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [providerNode, setProviderNode] = useState(null);
-  const [showOAuthModal, setShowOAuthModal] = useState(false);
+  const [showOAuthModal, _setShowOAuthModal] = useState(false);
+  const [reauthConnection, setReauthConnection] = useState<ConnectionRowConnection | null>(null);
   const [showAddApiKeyModal, setShowAddApiKeyModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showEditNodeModal, setShowEditNodeModal] = useState(false);
@@ -1020,6 +1021,11 @@ export default function ProviderDetailPage() {
     isAnthropicCompatibleProvider(providerId) && !isClaudeCodeCompatibleProvider(providerId);
   const isCompatible = isOpenAICompatible || isAnthropicCompatible || isCcCompatible;
   const isAnthropicProtocolCompatible = isAnthropicCompatible || isCcCompatible;
+
+  const setShowOAuthModal = (show: boolean, connectionRow?: ConnectionRowConnection) => {
+    _setShowOAuthModal(show);
+    setReauthConnection(show && connectionRow ? connectionRow : null);
+  };
 
   const providerInfo = resolveDashboardProviderInfo(providerId, {
     providerNode,
@@ -2724,7 +2730,7 @@ export default function ProviderDetailPage() {
 
       {isCompatible && providerNode && (
         <Card>
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold">
                 {isCcCompatible
@@ -2737,7 +2743,7 @@ export default function ProviderDetailPage() {
                 {getApiLabel()} · {(providerNode.baseUrl || "").replace(/\/$/, "")}/{getApiPath()}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" icon="add" onClick={() => setShowAddApiKeyModal(true)}>
                 {t("add")}
               </Button>
@@ -2782,6 +2788,16 @@ export default function ProviderDetailPage() {
               </Button>
             </div>
           </div>
+          {isCcCompatible && (
+            <div className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-text-muted">
+              <div className="flex items-start gap-2">
+                <span className="material-symbols-outlined mt-0.5 text-[18px] text-amber-500">
+                  warning
+                </span>
+                <p>{t("ccCompatibleValidationHint")}</p>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
@@ -2928,7 +2944,9 @@ export default function ProviderDetailPage() {
                         }}
                         onDelete={() => handleDelete(conn.id)}
                         onReauth={
-                          conn.authType === "oauth" ? () => setShowOAuthModal(true) : undefined
+                          conn.authType === "oauth"
+                            ? () => setShowOAuthModal(true, conn)
+                            : undefined
                         }
                         onRefreshToken={
                           conn.authType === "oauth" ? () => handleRefreshToken(conn.id) : undefined
@@ -3048,7 +3066,7 @@ export default function ProviderDetailPage() {
                               onDelete={() => handleDelete(conn.id)}
                               onReauth={
                                 conn.authType === "oauth"
-                                  ? () => setShowOAuthModal(true)
+                                  ? () => setShowOAuthModal(true, conn)
                                   : undefined
                               }
                               onRefreshToken={
@@ -3183,6 +3201,7 @@ export default function ProviderDetailPage() {
         (providerId === "kiro" || providerId === "amazon-q" ? (
           <KiroOAuthWrapper
             isOpen={showOAuthModal}
+            reauthConnection={reauthConnection}
             providerInfo={{ ...providerInfo, id: providerId }}
             onSuccess={handleOAuthSuccess}
             onClose={() => {
@@ -3192,6 +3211,7 @@ export default function ProviderDetailPage() {
         ) : providerId === "cursor" ? (
           <CursorAuthModal
             isOpen={showOAuthModal}
+            reauthConnection={reauthConnection}
             onSuccess={handleOAuthSuccess}
             onClose={() => {
               setShowOAuthModal(false);
@@ -3200,6 +3220,7 @@ export default function ProviderDetailPage() {
         ) : (
           <OAuthModal
             isOpen={showOAuthModal}
+            reauthConnection={reauthConnection}
             provider={providerId}
             providerInfo={providerInfo}
             onSuccess={handleOAuthSuccess}
@@ -3514,12 +3535,12 @@ function ModelRow({
             className={`rounded p-0.5 hover:bg-sidebar transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${testStatus === "ok" ? "text-green-500" : testStatus === "error" ? "text-red-500" : "text-text-muted hover:text-primary"}`}
             title={
               testingModel
-                ? t("testingModel", "Testing...")
+                ? t("testingModel")
                 : testStatus === "ok"
                   ? "OK"
                   : testStatus === "error"
                     ? "Error"
-                    : t("testModel", "Test Model")
+                    : t("testModel")
             }
           >
             {testingModel ? (
@@ -3900,12 +3921,12 @@ function PassthroughModelRow({
             className={`rounded p-0.5 hover:bg-sidebar transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${testStatus === "ok" ? "text-green-500" : testStatus === "error" ? "text-red-500" : "text-text-muted hover:text-primary"}`}
             title={
               testingModel
-                ? t("testingModel", "Testing...")
+                ? t("testingModel")
                 : testStatus === "ok"
                   ? "OK"
                   : testStatus === "error"
                     ? "Error"
-                    : t("testModel", "Test Model")
+                    : t("testModel")
             }
           >
             {testingModel ? (
@@ -5761,6 +5782,7 @@ function AddApiKeyModal({
       }
 
       let isValid = false;
+      let validationError: string | null = null;
       try {
         setValidating(true);
         setValidationResult(null);
@@ -5778,6 +5800,9 @@ function AddApiKeyModal({
         });
         const data = await res.json();
         isValid = !!data.valid;
+        if (!isValid && data.error) {
+          validationError = data.error;
+        }
         setValidationResult(isValid ? "success" : "failed");
       } catch {
         setValidationResult("failed");
@@ -5786,8 +5811,13 @@ function AddApiKeyModal({
       }
 
       if (!isValid) {
-        setSaveError(t("apiKeyValidationFailed"));
-        return;
+        if (apiKeyOptional && !formData.apiKey) {
+          // Bypass validation block for local/optional providers when no key is provided
+          console.debug("Validation failed but apiKey is optional; proceeding to save.");
+        } else {
+          setSaveError(validationError || t("apiKeyValidationFailed"));
+          return;
+        }
       }
 
       const providerSpecificData: Record<string, unknown> = {};
@@ -5849,6 +5879,16 @@ function AddApiKeyModal({
       onClose={onClose}
     >
       <div className="flex flex-col gap-4">
+        {isCcCompatible && (
+          <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-text-muted">
+            <div className="flex items-start gap-2">
+              <span className="material-symbols-outlined mt-0.5 text-[18px] text-amber-500">
+                warning
+              </span>
+              <p>{t("ccCompatibleValidationHint")}</p>
+            </div>
+          </div>
+        )}
         <Input
           label={t("nameLabel")}
           value={formData.name}
@@ -5909,17 +5949,15 @@ function AddApiKeyModal({
             />
           </div>
         )}
-        {isCompatible && (
+        {isCompatible && !isCcCompatible && (
           <p className="text-xs text-text-muted">
-            {isCcCompatible
-              ? t("ccCompatibleValidationHint")
-              : isAnthropic
-                ? t("validationChecksAnthropicCompatible", {
-                    provider: providerName || t("anthropicCompatibleName"),
-                  })
-                : t("validationChecksOpenAiCompatible", {
-                    provider: providerName || t("openaiCompatibleName"),
-                  })}
+            {isAnthropic
+              ? t("validationChecksAnthropicCompatible", {
+                  provider: providerName || t("anthropicCompatibleName"),
+                })
+              : t("validationChecksOpenAiCompatible", {
+                  provider: providerName || t("openaiCompatibleName"),
+                })}
           </p>
         )}
         <button
@@ -6948,6 +6986,16 @@ function EditCompatibleNodeModal({
       onClose={onClose}
     >
       <div className="flex flex-col gap-4">
+        {isCcCompatible && (
+          <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-text-muted">
+            <div className="flex items-start gap-2">
+              <span className="material-symbols-outlined mt-0.5 text-[18px] text-amber-500">
+                warning
+              </span>
+              <p>{t("ccCompatibleValidationHint")}</p>
+            </div>
+          </div>
+        )}
         <Input
           label={t("nameLabel")}
           value={formData.name}
